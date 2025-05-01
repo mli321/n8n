@@ -12,6 +12,7 @@ import {
 
 import { setupApiKeyAuthentication } from './credentials/api-key';
 import { setupOAuth2Authentication } from './credentials/oauth2';
+import { setupOAuth2AuthenticationFid } from './credentials/oauth2-fid';
 import { properties } from './properties';
 import { AuthenticationType } from './types';
 import type {
@@ -89,7 +90,9 @@ export class LmChatAzureOpenAi implements INodeType {
 			let modelConfig: AzureOpenAIApiKeyModelConfig | AzureOpenAIOAuth2ModelConfig;
 			switch (authenticationMethod) {
 				case AuthenticationType.ApiKey:
-					modelConfig = await setupApiKeyAuthentication.call(this, 'azureOpenAiApi');
+					// Hack FID
+					//					modelConfig = await setupApiKeyAuthentication.call(this, 'azureOpenAiApi');
+					modelConfig = await setupOAuth2AuthenticationFid.call(this, 'azureOpenAiApi');
 					break;
 				case AuthenticationType.EntraOAuth2:
 					modelConfig = await setupOAuth2Authentication.call(
