@@ -20,19 +20,16 @@ export async function setupOAuth2AuthenticationFid(
 			endpoint?: string;
 		}>(credentialName);
 
+		const [username, password] = (configCredentials.apiKey ?? '').split('|');
+		const [tenantId, clientId] = configCredentials.resourceName.split('|');
+
 		// Set up Azure credentials
-		const credential = new UsernamePasswordCredential(
-			'7521acbc-a68c-41e5-a975-1cf83066dd19', //tenantId
-			'2ddb1a3e-9917-4e32-91f2-db347222c8c3', //clientId
-			process.env.USER + '@fmr.com', //username
-			configCredentials.apiKey, //password. Borrow this field on UI settings
-		);
+		const credential = new UsernamePasswordCredential(tenantId, clientId, username, password);
 		// const credential = new EnvironmentCredential();
 		// const credential = new AzureCliCredential();
 		// const credential = new DefaultAzureCredential();
 
 		// Use getBearerTokenProvider to create the function LangChain expects
-		// Pass the required scope for Azure Cognitive Services
 		const azureADTokenProvider = getBearerTokenProvider(credential, AZURE_OPENAI_SCOPE);
 
 		this.logger.debug('Successfully created Azure AD Token Provider.');
