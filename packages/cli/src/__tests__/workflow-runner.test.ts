@@ -1,4 +1,6 @@
-import { Container } from '@n8n/di';
+import type { User } from '@n8n/db';
+import type { ExecutionEntity } from '@n8n/db';
+import { Container, Service } from '@n8n/di';
 import { mock } from 'jest-mock-extended';
 import { DirectedGraph, WorkflowExecute } from 'n8n-core';
 import * as core from 'n8n-core';
@@ -19,8 +21,6 @@ import PCancelable from 'p-cancelable';
 
 import { ActiveExecutions } from '@/active-executions';
 import config from '@/config';
-import type { ExecutionEntity } from '@/databases/entities/execution-entity';
-import type { User } from '@/databases/entities/user';
 import { ExecutionNotFoundError } from '@/errors/execution-not-found-error';
 import { CredentialsPermissionChecker } from '@/executions/pre-execution-checks';
 import { ManualExecutionService } from '@/manual-execution.service';
@@ -51,7 +51,7 @@ afterAll(() => {
 });
 
 beforeEach(async () => {
-	await testDb.truncate(['Workflow', 'SharedWorkflow']);
+	await testDb.truncate(['WorkflowEntity', 'SharedWorkflow']);
 	jest.clearAllMocks();
 });
 
@@ -256,5 +256,41 @@ describe('run', () => {
 			'1',
 			undefined,
 		);
+	});
+});
+
+describe('enqueueExecution', () => {
+	const setupQueue = jest.fn();
+
+	@Service()
+	class MockScalingService {
+		setupQueue = setupQueue;
+
+		addJob = jest.fn();
+	}
+
+	beforeAll(() => {
+		jest.mock('@/scaling/scaling.service', () => ({
+			ScalingService: MockScalingService,
+		}));
+	});
+
+	afterAll(() => {
+		jest.unmock('@/scaling/scaling.service');
+	});
+
+	it('should setup queue when scalingService is not initialized', async () => {
+		const activeExecutions = Container.get(ActiveExecutions);
+		jest.spyOn(activeExecutions, 'attachWorkflowExecution').mockReturnValue();
+		jest.spyOn(runner, 'processError').mockResolvedValue();
+		const data = mock<IWorkflowExecutionDataProcess>({
+			workflowData: { nodes: [] },
+			executionData: undefined,
+		});
+
+		// @ts-expect-error Private method
+		await runner.enqueueExecution('1', data);
+
+		expect(setupQueue).toHaveBeenCalledTimes(1);
 	});
 });

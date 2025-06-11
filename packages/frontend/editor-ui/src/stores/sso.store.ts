@@ -3,10 +3,10 @@ import { computed, reactive } from 'vue';
 import { useRoute } from 'vue-router';
 import { defineStore } from 'pinia';
 import { EnterpriseEditionFeature } from '@/constants';
-import { useRootStore } from '@/stores/root.store';
+import { useRootStore } from '@n8n/stores/useRootStore';
 import { useSettingsStore } from '@/stores/settings.store';
-import * as ssoApi from '@/api/sso';
-import type { SamlPreferencesExtractedData } from '@/Interface';
+import * as ssoApi from '@n8n/rest-api-client/api/sso';
+import type { SamlPreferencesExtractedData } from '@n8n/rest-api-client/api/sso';
 import { updateCurrentUser } from '@/api/users';
 import { useUsersStore } from '@/stores/users.store';
 
