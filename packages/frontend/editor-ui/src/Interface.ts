@@ -6,6 +6,9 @@ import type {
 	Iso8601DateTimeString,
 	IUserManagementSettings,
 	IVersionNotificationSettings,
+	ROLE,
+	Role,
+	User,
 } from '@n8n/api-types';
 import type { Scope } from '@n8n/permissions';
 import type { NodeCreatorTag } from '@n8n/design-system';
@@ -51,11 +54,9 @@ import type { Cloud, InstanceUsage } from '@n8n/rest-api-client/api/cloudPlans';
 import type {
 	AI_NODE_CREATOR_VIEW,
 	CREDENTIAL_EDIT_MODAL_KEY,
-	SignInType,
 	TRIGGER_NODE_CREATOR_VIEW,
 	REGULAR_NODE_CREATOR_VIEW,
 	AI_OTHERS_NODE_CREATOR_VIEW,
-	ROLE,
 	AI_UNCATEGORIZED_CATEGORY,
 	AI_EVALUATION,
 } from '@/constants';
@@ -568,22 +569,12 @@ export type IPersonalizationSurveyVersions =
 	| IPersonalizationSurveyAnswersV3
 	| IPersonalizationSurveyAnswersV4;
 
-export type Roles = typeof ROLE;
-export type IRole = Roles[keyof Roles];
-export type InvitableRoleName = Roles['Member' | 'Admin'];
+export type InvitableRoleName = (typeof ROLE)['Member' | 'Admin'];
 
-export interface IUserResponse {
-	id: string;
-	firstName?: string;
-	lastName?: string;
-	email?: string;
-	createdAt?: string;
-	role?: IRole;
+export interface IUserResponse extends User {
 	globalScopes?: Scope[];
 	personalizationAnswers?: IPersonalizationSurveyVersions | null;
-	isPending: boolean;
-	signInType?: SignInType;
-	settings?: IUserSettings;
+	settings?: IUserSettings | null;
 }
 
 export interface CurrentUserResponse extends IUserResponse {
@@ -605,21 +596,16 @@ export interface IUserListAction {
 	guard?: (user: IUser) => boolean;
 }
 
-export interface IN8nPrompts {
-	message?: string;
-	title?: string;
-	showContactPrompt?: boolean;
-}
-
 export const enum UserManagementAuthenticationMethod {
 	Email = 'email',
 	Ldap = 'ldap',
 	Saml = 'saml',
+	Oidc = 'oidc',
 }
 
 export interface IPermissionGroup {
 	loginStatus?: ILogInStatus[];
-	role?: IRole[];
+	role?: Role[];
 }
 
 export interface IPermissionAllowGroup extends IPermissionGroup {
@@ -803,6 +789,15 @@ export interface LinkItemProps {
 	icon: string;
 	tag?: NodeCreatorTag;
 }
+
+export interface OpenTemplateItemProps {
+	key: 'rag-starter-template';
+	title: string;
+	description: string;
+	icon: string;
+	tag?: NodeCreatorTag;
+}
+
 export interface ActionTypeDescription extends SimplifiedNodeType {
 	displayOptions?: IDisplayOptions;
 	values?: IDataObject;
@@ -865,6 +860,11 @@ export interface LinkCreateElement extends CreateElementBase {
 	properties: LinkItemProps;
 }
 
+export interface OpenTemplateElement extends CreateElementBase {
+	type: 'openTemplate';
+	properties: OpenTemplateItemProps;
+}
+
 export interface ActionCreateElement extends CreateElementBase {
 	type: 'action';
 	subcategory: string;
@@ -879,7 +879,16 @@ export type INodeCreateElement =
 	| ViewCreateElement
 	| LabelCreateElement
 	| ActionCreateElement
-	| LinkCreateElement;
+	| LinkCreateElement
+	| OpenTemplateElement;
+
+export type NodeTypeSelectedPayload = {
+	type: string;
+	parameters?: {
+		resource?: string;
+		operation?: string;
+	};
+};
 
 export interface SubcategorizedNodeTypes {
 	[subcategory: string]: INodeCreateElement[];
@@ -1041,6 +1050,11 @@ export interface NDVState {
 	highlightDraggables: boolean;
 }
 
+export type TargetNodeParameterContext = {
+	nodeName: string;
+	parameterPath: string;
+};
+
 export interface NotificationOptions extends Partial<ElementNotificationOptions> {
 	message: string | ElementNotificationOptions['message'];
 }
@@ -1174,7 +1188,7 @@ export interface IInviteResponse {
 		email: string;
 		emailSent: boolean;
 		inviteAcceptUrl: string;
-		role: IRole;
+		role: Role;
 	};
 	error?: string;
 }
@@ -1422,6 +1436,7 @@ export type EnterpriseEditionFeatureKey =
 	| 'LogStreaming'
 	| 'Variables'
 	| 'Saml'
+	| 'Oidc'
 	| 'SourceControl'
 	| 'ExternalSecrets'
 	| 'AuditLogs'
@@ -1432,10 +1447,6 @@ export type EnterpriseEditionFeatureKey =
 	| 'ApiKeyScopes';
 
 export type EnterpriseEditionFeatureValue = keyof Omit<FrontendSettings['enterprise'], 'projects'>;
-
-export interface IN8nPromptResponse {
-	updated: boolean;
-}
 
 export type InputPanel = {
 	nodeName?: string;

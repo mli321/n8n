@@ -1,4 +1,4 @@
-import { ROLE } from '@/constants';
+import { ROLE } from '@n8n/api-types';
 import { useSettingsStore } from '@/stores/settings.store';
 import merge from 'lodash/merge';
 import { usePageRedirectionHelper } from './usePageRedirectionHelper';
@@ -51,7 +51,7 @@ describe('usePageRedirectionHelper', () => {
 			writable: true,
 		});
 
-		versionStore.setVersionNotificationSettings({
+		versionStore.initialize({
 			enabled: true,
 			endpoint: '',
 			infoUrl:
