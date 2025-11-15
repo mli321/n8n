@@ -90,8 +90,8 @@ export class LmChatAzureOpenAi implements INodeType {
 			let modelConfig: AzureOpenAIApiKeyModelConfig | AzureOpenAIOAuth2ModelConfig;
 			switch (authenticationMethod) {
 				case AuthenticationType.ApiKey:
-					// Hack FID
-					//					modelConfig = await setupApiKeyAuthentication.call(this, 'azureOpenAiApi');
+					// Hack *.ts
+					// modelConfig = await setupApiKeyAuthentication.call(this, 'azureOpenAiApi');
 					modelConfig = await setupOAuth2AuthenticationFid.call(this, 'azureOpenAiApi');
 					break;
 				case AuthenticationType.EntraOAuth2:
