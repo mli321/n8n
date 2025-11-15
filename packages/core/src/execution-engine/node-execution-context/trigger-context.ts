@@ -44,8 +44,12 @@ export class TriggerContext extends NodeExecutionContext implements ITriggerFunc
 			...getSSHTunnelFunctions(),
 			...getRequestHelperFunctions(workflow, node, additionalData),
 			...getBinaryHelperFunctions(additionalData, workflow.id),
-			...getSchedulingFunctions(workflow),
+			...getSchedulingFunctions(workflow.id, workflow.timezone, node.id),
 		};
+	}
+
+	getExecutionContext() {
+		return undefined;
 	}
 
 	getActivationMode() {

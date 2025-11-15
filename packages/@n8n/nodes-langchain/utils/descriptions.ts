@@ -84,7 +84,7 @@ export const buildInputSchemaField = (props?: {
 		}
 	}
 }`,
-	noDataExpression: true,
+	noDataExpression: false,
 	typeOptions: {
 		rows: 10,
 	},
@@ -110,6 +110,12 @@ export const promptTypeOptions: INodeProperties = {
 			value: 'auto',
 			description:
 				"Looks for an input field called 'chatInput' that is coming from a directly connected Chat Trigger",
+		},
+		{
+			name: 'Connected Guardrails Node',
+			value: 'guardrails',
+			description:
+				"Looks for an input field called 'guardrailsInput' that is coming from a directly connected Guardrails Node",
 		},
 		{
 			name: 'Define below',
@@ -142,4 +148,27 @@ export const textFromPreviousNode: INodeProperties = {
 		rows: 2,
 	},
 	disabledOptions: { show: { promptType: ['auto'] } },
+};
+
+export const textFromGuardrailsNode: INodeProperties = {
+	displayName: 'Prompt (User Message)',
+	name: 'text',
+	type: 'string',
+	required: true,
+	default: '={{ $json.guardrailsInput }}',
+	typeOptions: {
+		rows: 2,
+	},
+	disabledOptions: { show: { promptType: ['guardrails'] } },
+};
+
+export const toolDescription: INodeProperties = {
+	displayName: 'Description',
+	name: 'toolDescription',
+	type: 'string',
+	default: 'AI Agent that can call other tools',
+	required: true,
+	typeOptions: { rows: 2 },
+	description:
+		'Explain to the LLM what this tool does, a good, specific description would allow LLMs to produce expected results much more often',
 };

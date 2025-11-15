@@ -13,6 +13,10 @@ import type { SecureContextOptions } from 'tls';
 import type { URLSearchParams } from 'url';
 
 import type { CODE_EXECUTION_MODES, CODE_LANGUAGES, LOG_LEVELS } from './constants';
+import type {
+	IDataTableProjectAggregateService,
+	IDataTableProjectService,
+} from './data-table.types';
 import type { IDeferredPromise } from './deferred-promise';
 import type { ExecutionCancelledError } from './errors';
 import type { ExpressionError } from './errors/expression.error';
@@ -20,10 +24,16 @@ import type { NodeApiError } from './errors/node-api.error';
 import type { NodeOperationError } from './errors/node-operation.error';
 import type { WorkflowActivationError } from './errors/workflow-activation.error';
 import type { WorkflowOperationError } from './errors/workflow-operation.error';
+import type {
+	IExecutionContext,
+	WorkflowExecuteModeValues as WorkflowExecuteMode,
+} from './execution-context';
 import type { ExecutionStatus } from './execution-status';
 import type { Result } from './result';
 import type { Workflow } from './workflow';
 import type { EnvProviderState } from './workflow-data-proxy-env-provider';
+
+export type { WorkflowExecuteModeValues as WorkflowExecuteMode } from './execution-context';
 
 export interface IAdditionalCredentialOptions {
 	oauth2?: IOAuth2Options;
@@ -223,6 +233,12 @@ export abstract class ICredentialsHelper {
 		data: ICredentialDataDecryptedObject,
 	): Promise<void>;
 
+	abstract updateCredentialsOauthTokenData(
+		nodeCredentials: INodeCredentialsDetails,
+		type: string,
+		data: ICredentialDataDecryptedObject,
+	): Promise<void>;
+
 	abstract getCredentialsProperties(type: string): INodeProperties[];
 }
 
@@ -319,6 +335,12 @@ export interface ICredentialType {
 	icon?: Icon;
 	iconColor?: ThemeIconColor;
 	iconUrl?: Themed<string>;
+	/**
+	 * Base path for resolving file icons from expressions.
+	 * Used when icon is an expression that resolves to `file:filename.svg`
+	 * Format: `icons/${packageName}/${nodeDirPath}`
+	 */
+	iconBasePath?: string;
 	extends?: string[];
 	properties: INodeProperties[];
 	documentationUrl?: string;
@@ -415,6 +437,7 @@ export interface IExecuteData {
 	metadata?: ITaskMetadata;
 	node: INode;
 	source: ITaskDataConnectionsSource | null;
+	runIndex?: number;
 }
 
 export type IContextObject = {
@@ -808,6 +831,11 @@ export interface RequestHelperFunctions {
 		requestOptions: IRequestOptions,
 		oAuth2Options?: IOAuth2Options,
 	): Promise<any>;
+	refreshOAuth2Token(
+		this: IAllExecuteFunctions,
+		credentialsType: string,
+		oAuth2Options?: IOAuth2Options,
+	): Promise<any>;
 }
 
 export type SSHCredentials = {
@@ -837,8 +865,27 @@ type CronUnit = number | '*' | `*/${number}`;
 export type CronExpression =
 	`${CronUnit} ${CronUnit} ${CronUnit} ${CronUnit} ${CronUnit} ${CronUnit}`;
 
+type CronRecurrenceRule =
+	| { activated: false }
+	| {
+			activated: true;
+			index: number;
+			intervalSize: number;
+			typeInterval: 'hours' | 'days' | 'weeks' | 'months';
+	  };
+
+export type CronContext = {
+	nodeId: string;
+	workflowId: string;
+	timezone: string;
+	expression: CronExpression;
+	recurrence?: CronRecurrenceRule;
+};
+
+export type Cron = { expression: CronExpression; recurrence?: CronRecurrenceRule };
+
 export interface SchedulingFunctions {
-	registerCron(cronExpression: CronExpression, onTick: () => void): void;
+	registerCron(cron: Cron, onTick: () => void): void;
 }
 
 export type NodeTypeAndVersion = {
@@ -864,14 +911,28 @@ export interface FunctionsBase {
 	getRestApiUrl(): string;
 	getInstanceBaseUrl(): string;
 	getInstanceId(): string;
+	/** Get the waiting resume url signed with the signature token */
+	getSignedResumeUrl(parameters?: Record<string, string>): string;
+	/** Set requirement in the execution for signature token validation */
+	setSignatureValidationRequired(): void;
 	getChildNodes(
 		nodeName: string,
 		options?: { includeNodeParameters?: boolean },
 	): NodeTypeAndVersion[];
-	getParentNodes(nodeName: string): NodeTypeAndVersion[];
+	getParentNodes(
+		nodeName: string,
+		options?: {
+			includeNodeParameters?: boolean;
+			connectionType?: NodeConnectionType;
+			depth?: number;
+		},
+	): NodeTypeAndVersion[];
 	getKnownNodeTypes(): IDataObject;
 	getMode?: () => WorkflowExecuteMode;
 	getActivationMode?: () => WorkflowActivateMode;
+	getChatTrigger: () => INode | null;
+
+	getExecutionContext: () => IExecutionContext | undefined;
 
 	/** @deprecated */
 	prepareOutputData(outputData: INodeExecutionData[]): Promise<INodeExecutionData[][]>;
@@ -883,6 +944,26 @@ type FunctionsBaseWithRequiredKeys<Keys extends keyof FunctionsBase> = Functions
 
 export type ContextType = 'flow' | 'node';
 
+export type DataTableProxyProvider = {
+	getDataTableAggregateProxy(
+		workflow: Workflow,
+		node: INode,
+		projectId?: string,
+	): Promise<IDataTableProjectAggregateService>;
+	getDataTableProxy(
+		workflow: Workflow,
+		node: INode,
+		dataTableId: string,
+		projectId?: string,
+	): Promise<IDataTableProjectService>;
+};
+
+export type DataTableProxyFunctions = {
+	// These are optional to account for situations where the data-table module is disabled
+	getDataTableAggregateProxy?(): Promise<IDataTableProjectAggregateService>;
+	getDataTableProxy?(dataTableId: string): Promise<IDataTableProjectService>;
+};
+
 type BaseExecutionFunctions = FunctionsBaseWithRequiredKeys<'getMode'> & {
 	continueOnFail(): boolean;
 	setMetadata(metadata: ITaskMetadata): void;
@@ -893,7 +974,7 @@ type BaseExecutionFunctions = FunctionsBaseWithRequiredKeys<'getMode'> & {
 	getInputSourceData(inputIndex?: number, connectionType?: NodeConnectionType): ISourceData;
 	getExecutionCancelSignal(): AbortSignal | undefined;
 	onExecutionCancellation(handler: () => unknown): void;
-	logAiEvent(eventName: AiEvent, msg?: string | undefined): void;
+	logAiEvent(eventName: AiEvent, msg?: string): void;
 };
 
 // TODO: Create later own type only for Config-Nodes
@@ -908,6 +989,7 @@ export type IExecuteFunctions = ExecuteFunctions.GetNodeParameterFn &
 				parentExecution?: RelatedExecution;
 			},
 		): Promise<ExecuteWorkflowData>;
+		getExecutionDataById(executionId: string): Promise<IRunExecutionData | undefined>;
 		getInputConnectionData(
 			connectionType: AINodeConnectionType,
 			itemIndex: number,
@@ -919,6 +1001,8 @@ export type IExecuteFunctions = ExecuteFunctions.GetNodeParameterFn &
 		putExecutionToWait(waitTill: Date): Promise<void>;
 		sendMessageToUI(message: any): void;
 		sendResponse(response: IExecuteResponsePromiseData): void;
+		sendChunk(type: ChunkType, itemIndex: number, content?: IDataObject | string): void;
+		isStreaming(): boolean;
 
 		// TODO: Make this one then only available in the new config one
 		addInputData(
@@ -942,14 +1026,18 @@ export type IExecuteFunctions = ExecuteFunctions.GetNodeParameterFn &
 			BinaryHelperFunctions &
 			DeduplicationHelperFunctions &
 			FileSystemHelperFunctions &
-			SSHTunnelFunctions & {
+			SSHTunnelFunctions &
+			DataTableProxyFunctions & {
 				normalizeItems(items: INodeExecutionData | INodeExecutionData[]): INodeExecutionData[];
 				constructExecutionMetaData(
 					inputData: INodeExecutionData[],
 					options: { itemData: IPairedItemData | IPairedItemData[] },
 				): NodeExecutionWithMetadata[];
-				assertBinaryData(itemIndex: number, propertyName: string): IBinaryData;
-				getBinaryDataBuffer(itemIndex: number, propertyName: string): Promise<Buffer>;
+				assertBinaryData(itemIndex: number, parameterData: string | IBinaryData): IBinaryData;
+				getBinaryDataBuffer(
+					itemIndex: number,
+					parameterData: string | IBinaryData,
+				): Promise<Buffer>;
 				detectBinaryEncoding(buffer: Buffer): string;
 				copyInputItems(items: INodeExecutionData[], properties: string[]): IDataObject[];
 			};
@@ -992,6 +1080,7 @@ export type ISupplyDataFunctions = ExecuteFunctions.GetNodeParameterFn &
 		| 'getNodeOutputs'
 		| 'executeWorkflow'
 		| 'sendMessageToUI'
+		| 'startJob'
 		| 'helpers'
 	> & {
 		getNextRunIndex(): number;
@@ -1000,7 +1089,8 @@ export type ISupplyDataFunctions = ExecuteFunctions.GetNodeParameterFn &
 		getWorkflowDataProxy(itemIndex: number): IWorkflowDataProxyData;
 		getExecutionCancelSignal(): AbortSignal | undefined;
 		onExecutionCancellation(handler: () => unknown): void;
-		logAiEvent(eventName: AiEvent, msg?: string | undefined): void;
+		logAiEvent(eventName: AiEvent, msg?: string): void;
+		addExecutionHints(...hints: NodeExecutionHint[]): void;
 		cloneWith(replacements: {
 			runIndex: number;
 			inputData: INodeExecutionData[][];
@@ -1026,7 +1116,7 @@ export interface ILoadOptionsFunctions extends FunctionsBase {
 	): NodeParameterValueType | object | undefined;
 	getCurrentNodeParameters(): INodeParameters | undefined;
 
-	helpers: RequestHelperFunctions & SSHTunnelFunctions;
+	helpers: RequestHelperFunctions & SSHTunnelFunctions & DataTableProxyFunctions;
 }
 
 export type FieldValueOption = { name: string; type: FieldType | 'any' };
@@ -1192,6 +1282,7 @@ export interface INodeExecutionData {
 		| NodeApiError
 		| NodeOperationError
 		| number
+		| string
 		| undefined;
 	json: IDataObject;
 	binary?: IBinaryKeyData;
@@ -1200,6 +1291,17 @@ export interface INodeExecutionData {
 	metadata?: {
 		subExecution: RelatedExecution;
 	};
+	evaluationData?: Record<string, GenericValue>;
+	/**
+	 * Use this key to send a message to the chat.
+	 *
+	 * - Workflow has to be started by a chat node.
+	 * - Put execution to wait after sending.
+	 *
+	 * See example in
+	 * packages/@n8n/nodes-langchain/nodes/trigger/ChatTrigger/Chat.node.ts
+	 */
+	sendMessage?: string;
 
 	/**
 	 * @deprecated This key was added by accident and should not be used as it
@@ -1220,7 +1322,7 @@ export interface IResourceLocatorResult {
 export interface INodeParameterResourceLocator {
 	__rl: true;
 	mode: ResourceLocatorModes;
-	value: NodeParameterValue;
+	value: Exclude<NodeParameterValue, boolean>;
 	cachedResultName?: string;
 	cachedResultUrl?: string;
 	__regex?: string;
@@ -1276,6 +1378,7 @@ export type SQLDialect =
 	| 'StandardSQL'
 	| 'PostgreSQL'
 	| 'MySQL'
+	| 'OracleDB'
 	| 'MariaSQL'
 	| 'MSSQL'
 	| 'SQLite'
@@ -1296,11 +1399,24 @@ export type NodePropertyAction = {
 	target?: string;
 };
 
-export type CalloutActionType = 'openRagStarterTemplate';
-export interface CalloutAction {
-	type: CalloutActionType;
+export interface CalloutActionBase {
+	type: string;
 	label: string;
+	icon?: string;
 }
+
+export interface CalloutActionOpenPreBuiltAgentsCollection extends CalloutActionBase {
+	type: 'openPreBuiltAgentsCollection';
+}
+
+export interface CalloutActionOpenSampleWorkflowTemplate extends CalloutActionBase {
+	type: 'openSampleWorkflowTemplate';
+	templateId: string;
+}
+
+export type CalloutAction =
+	| CalloutActionOpenPreBuiltAgentsCollection
+	| CalloutActionOpenSampleWorkflowTemplate;
 
 export interface INodePropertyTypeOptions {
 	// Supported by: button
@@ -1335,6 +1451,7 @@ export interface INodePropertyTypeOptions {
 	minRequiredFields?: number; // Supported by: fixedCollection
 	maxAllowedFields?: number; // Supported by: fixedCollection
 	calloutAction?: CalloutAction; // Supported by: callout
+	binaryDataProperty?: boolean; // Indicate that the property expects binary data
 	[key: string]: any;
 }
 
@@ -1349,12 +1466,14 @@ export interface ResourceMapperTypeOptionsBase {
 	noFieldsError?: string;
 	multiKeyMatch?: boolean;
 	supportAutoMap?: boolean;
+	hideNoDataError?: boolean; // Hide "No data found" error when no fields are available
 	matchingFieldsLabels?: {
 		title?: string;
 		description?: string;
 		hint?: string;
 	};
 	showTypeConversionOptions?: boolean;
+	allowEmptyValues?: boolean;
 }
 
 // Enforce at least one of resourceMapperMethod or localResourceMapperMethod
@@ -1457,17 +1576,24 @@ export interface INodeProperties {
 	// allows to skip validation during execution or set custom validation/casting logic inside node
 	// inline error messages would still be shown in UI
 	ignoreValidationDuringExecution?: boolean;
+	// for type: options | multiOptions – skip validation of the value (e.g. when value is not in the list and specified via expression)
+	allowArbitraryValues?: boolean;
 }
 
 export interface INodePropertyModeTypeOptions {
 	searchListMethod?: string; // Supported by: options
 	searchFilterRequired?: boolean;
 	searchable?: boolean;
+	/**
+	 * If true, the resource locator will not show an error if the credentials are not selected
+	 */
+	skipCredentialsCheckInRLC?: boolean;
 	allowNewResource?: {
 		label: string;
-		defaultName: string;
-		method: string;
-	};
+	} & (
+		| { method: string; url?: never; defaultName: string }
+		| { method?: never; url: string; defaultName?: never }
+	);
 }
 
 export interface INodePropertyMode {
@@ -1518,6 +1644,10 @@ export interface INodePropertyOptions {
 	routing?: INodePropertyRouting;
 	outputConnectionType?: NodeConnectionType;
 	inputSchema?: any;
+	displayOptions?: IDisplayOptions;
+	// disabledOptions added for compatibility with INodeProperties and INodeCredentialDescription types
+	// it needs to be implemented, if needed
+	disabledOptions?: undefined;
 }
 
 export interface INodeListSearchItems extends INodePropertyOptions {
@@ -1549,7 +1679,7 @@ export interface INodePropertyValueExtractorFunction {
 	(
 		this: IExecuteSingleFunctions,
 		value: string | NodeParameterValue,
-	): Promise<string | NodeParameterValue> | (string | NodeParameterValue);
+	): Promise<string | NodeParameterValue> | string;
 }
 export type INodePropertyValueExtractor = INodePropertyValueExtractorRegex;
 
@@ -1601,14 +1731,24 @@ export interface SupplyData {
 	metadata?: IDataObject;
 	response: unknown;
 	closeFunction?: CloseFunction;
+	hints?: NodeExecutionHint[];
 }
 
-type NodeOutput = INodeExecutionData[][] | NodeExecutionWithMetadata[][] | null;
+export type NodeOutput =
+	| INodeExecutionData[][]
+	| NodeExecutionWithMetadata[][]
+	| EngineRequest
+	| null;
 
 export interface INodeType {
 	description: INodeTypeDescription;
 	supplyData?(this: ISupplyDataFunctions, itemIndex: number): Promise<SupplyData>;
-	execute?(this: IExecuteFunctions): Promise<NodeOutput>;
+	execute?(this: IExecuteFunctions, response?: EngineResponse): Promise<NodeOutput>;
+	/**
+	 * A function called when a node receives a chat message. Allows it to react
+	 * to the message before it gets executed.
+	 */
+	onMessage?(context: IExecuteFunctions, data: INodeExecutionData): Promise<NodeOutput>;
 	poll?(this: IPollFunctions): Promise<INodeExecutionData[][] | null>;
 	trigger?(this: ITriggerFunctions): Promise<ITriggerResponse | undefined>;
 	webhook?(this: IWebhookFunctions): Promise<IWebhookResponseData>;
@@ -1660,12 +1800,101 @@ export interface INodeType {
 }
 
 /**
+ * Represents a request to execute a specific node and receive the result back.
+ * This action tells the engine to execute the specified node with the provided input
+ * and then call back the requesting node with the execution result.
+ *
+ * @template T - The type of metadata associated with this action
+ */
+type ExecuteNodeAction<T> = {
+	/** The type identifier for this action */
+	actionType: 'ExecutionNodeAction';
+	/** The name of the node to be executed */
+	nodeName: string;
+	/** Input data to be passed to the node for execution */
+	input: IDataObject;
+	/** The type of connection this execution request uses */
+	type: NodeConnectionType;
+	/** Unique identifier for this execution request */
+	id: string;
+	/** Additional metadata for this execution request */
+	metadata: T;
+};
+
+/**
+ * Union type of all possible actions that nodes can request from the workflow engine.
+ * Currently only contains ExecuteNodeAction, but will be extended with additional
+ * action types as they are implemented.
+ *
+ * @template T - The type of metadata associated with this action
+ */
+type EngineAction<T = unknown> = ExecuteNodeAction<T>;
+
+/**
+ * A collection of actions that a node wants the engine to fulfill and call back with results.
+ * The requesting node sends this to the engine and expects to receive an EngineResponse
+ * containing the results of all requested actions.
+ *
+ * @template T - The type of metadata associated with this request
+ *
+ * @todo This should use `unknown`, but jest-mock-extended will turn this into
+ * `Partial<unknown>` which `unknown` cannot be assigned to, which leads to a
+ * lot of type errors in our tests.
+ * The correct fix is to make a PR to jest-mock-extended and make it handle
+ * `unknown` special, turning it into `unknown` instead of `Partial<unknown>`.
+ */
+export type EngineRequest<T = object> = {
+	/** Array of actions that the requesting node wants the engine to fulfill */
+	actions: Array<EngineAction<T>>;
+	/** Metadata associated with this request */
+	metadata: T;
+};
+
+/**
+ * Result of executing a single node action within the workflow engine.
+ * Contains the original action and the resulting task data.
+ *
+ * @template T - The type of metadata associated with this result
+ */
+export type ExecuteNodeResult<T = unknown> = {
+	/** The action that was executed */
+	action: ExecuteNodeAction<T>;
+	/** The resulting task data from the execution */
+	data: ITaskData;
+};
+
+/**
+ * Union type of all possible results from engine actions.
+ * Currently only contains ExecuteNodeResult, but will be extended with additional
+ * result types as new action types are implemented.
+ *
+ * @template T - The type of metadata associated with this result
+ */
+type EngineResult<T> = ExecuteNodeResult<T>;
+
+/**
+ * Response structure returned from the workflow engine after execution.
+ * Contains the results of all executed actions along with associated metadata.
+ *
+ * @template T - The type of metadata associated with this response
+ */
+export type EngineResponse<T = unknown> = {
+	/** Array of results from each executed action */
+	actionResponses: Array<EngineResult<T>>;
+	/** Metadata associated with this response */
+	metadata: T;
+};
+
+/**
  * This class serves as the base for all nodes using the new context API
  * having this as a class enables us to identify these instances at runtime
  */
 export abstract class Node {
 	abstract description: INodeTypeDescription;
-	execute?(context: IExecuteFunctions): Promise<INodeExecutionData[][]>;
+	execute?(
+		context: IExecuteFunctions,
+		response?: EngineResponse,
+	): Promise<INodeExecutionData[][] | EngineRequest>;
 	webhook?(context: IWebhookFunctions): Promise<IWebhookResponseData>;
 	poll?(context: IPollFunctions): Promise<INodeExecutionData[][] | null>;
 }
@@ -1739,8 +1968,8 @@ export type ThemeIconColor =
 	| 'crimson';
 export type Themed<T> = T | { light: T; dark: T };
 export type IconRef = `fa:${string}` | `node:${string}.${string}`;
-export type IconFile = `file:${string}.png` | `file:${string}.svg`;
-export type Icon = IconRef | Themed<IconFile>;
+export type IconFile = `file:${string}.png` | `file:${string}.svg` | ExpressionString;
+export type Icon = IconRef | Themed<IconFile> | IconFile;
 
 type NodeGroupType = 'input' | 'output' | 'organization' | 'schedule' | 'transform' | 'trigger';
 
@@ -1750,6 +1979,12 @@ export interface INodeTypeBaseDescription {
 	icon?: Icon;
 	iconColor?: ThemeIconColor;
 	iconUrl?: Themed<string>;
+	/**
+	 * Base path for resolving file icons from expressions.
+	 * Used when icon is an expression that resolves to `file:filename.svg`
+	 * Format: `icons/${packageName}/${nodeDirPath}`
+	 */
+	iconBasePath?: string;
 	badgeIconUrl?: Themed<string>;
 	group: NodeGroupType[];
 	description: string;
@@ -1907,7 +2142,8 @@ export interface INodeInputFilter {
 	// TODO: Later add more filter options like categories, subcatogries,
 	//       regex, allow to exclude certain nodes, ... ?
 	//       Potentially change totally after alpha/beta. Is not a breaking change after all.
-	nodes: string[]; // Allowed nodes
+	nodes?: string[]; // Allowed nodes
+	excludedNodes?: string[];
 }
 
 export interface INodeInputConfiguration {
@@ -1965,6 +2201,8 @@ export interface INodeTypeDescription extends INodeTypeBaseDescription {
 	triggerPanel?: TriggerPanelDefinition | boolean;
 	extendsCredential?: string;
 	hints?: NodeHint[];
+	communityNodePackageVersion?: string;
+	waitingNodeTooltip?: string;
 	__loadOptionsMethods?: string[]; // only for validation during build
 }
 
@@ -2094,7 +2332,29 @@ export interface IWebhookResponseData {
 }
 
 export type WebhookResponseData = 'allEntries' | 'firstEntryJson' | 'firstEntryBinary' | 'noData';
-export type WebhookResponseMode = 'onReceived' | 'lastNode' | 'responseNode' | 'formPage';
+
+/**
+ * Defines how and when response should be sent:
+ *
+ * onReceived: Response is sent immidiatly after node done executing
+ *
+ * lastNode: Response is sent after the last node finishes executing
+ *
+ * responseNode: Response is sent from the Responde to Webhook node
+ *
+ * formPage: Special response with executionId sent to the form trigger node
+ *
+ * hostedChat: Special response with executionId sent to the hosted chat trigger node
+ *
+ * streaming: Response added to runData to httpResponse and streamingEnabled set to true
+ */
+export type WebhookResponseMode =
+	| 'onReceived'
+	| 'lastNode'
+	| 'responseNode'
+	| 'formPage'
+	| 'hostedChat'
+	| 'streaming';
 
 export interface INodeTypes {
 	getByName(nodeType: string): INodeType | IVersionedNodeType;
@@ -2168,6 +2428,7 @@ export interface IRunExecutionData {
 	};
 	executionData?: {
 		contextData: IExecuteContextData;
+		runtimeData?: IExecutionContext;
 		nodeExecutionStack: IExecuteData[];
 		metadata: {
 			// node-name: metadata by runIndex
@@ -2177,14 +2438,37 @@ export interface IRunExecutionData {
 		waitingExecutionSource: IWaitingForExecutionSource | null;
 	};
 	parentExecution?: RelatedExecution;
+	/**
+	 * This is used to prevent breaking change
+	 * for waiting executions started before signature validation was added
+	 */
+	validateSignature?: boolean;
 	waitTill?: Date;
 	pushRef?: string;
 
 	/** Data needed for a worker to run a manual execution. */
 	manualData?: Pick<
 		IWorkflowExecutionDataProcess,
-		'partialExecutionVersion' | 'dirtyNodeNames' | 'triggerToStartFrom' | 'userId'
+		'dirtyNodeNames' | 'triggerToStartFrom' | 'userId'
 	>;
+}
+export type SchemaType =
+	| 'string'
+	| 'number'
+	| 'boolean'
+	| 'bigint'
+	| 'symbol'
+	| 'array'
+	| 'object'
+	| 'function'
+	| 'null'
+	| 'undefined';
+
+export type Schema = { type: SchemaType; key?: string; value: string | Schema[]; path: string };
+
+export interface NodeExecutionSchema {
+	nodeName: string;
+	schema: Schema;
 }
 
 export interface IRunData {
@@ -2200,13 +2484,39 @@ export interface ITaskSubRunMetadata {
 export interface RelatedExecution {
 	executionId: string;
 	workflowId: string;
+	// In the case of a parent execution, whether the parent should be resumed when the sub execution finishes.
+	shouldResume?: boolean;
 }
+
+type SubNodeExecutionDataAction = {
+	nodeName: string;
+	runIndex: number;
+	action: EngineRequest['actions'][number];
+	response?: object;
+};
 
 export interface ITaskMetadata {
 	subRun?: ITaskSubRunMetadata[];
 	parentExecution?: RelatedExecution;
 	subExecution?: RelatedExecution;
 	subExecutionsCount?: number;
+	subNodeExecutionData?: {
+		actions: SubNodeExecutionDataAction[];
+		metadata: object;
+	};
+	/**
+	 * When true, preserves sourceOverwrite information in pairedItem data during node execution.
+	 * This is used for AI tool nodes to maintain correct expression resolution context, allowing
+	 * tools to access data from nodes earlier in the workflow chain via $() expressions.
+	 */
+	preserveSourceOverwrite?: boolean;
+	/**
+	 * Indicates that this node execution is resuming from a previous pause (e.g., AI agent
+	 * resuming after tool execution). When true, the nodeExecuteBefore hook is skipped to
+	 * prevent duplicate event emissions that would cause UI state issues.
+	 * @see AI-1414
+	 */
+	nodeWasResumed?: boolean;
 }
 
 /** The data that gets returned when a node execution starts */
@@ -2276,6 +2586,7 @@ export type WorkflowId = IWorkflowBase['id'];
 export interface IWorkflowBase {
 	id: string;
 	name: string;
+	description?: string | null;
 	active: boolean;
 	isArchived: boolean;
 	createdAt: Date;
@@ -2287,6 +2598,8 @@ export interface IWorkflowBase {
 	staticData?: IDataObject;
 	pinData?: IPinData;
 	versionId?: string;
+	versionCounter?: number;
+	meta?: WorkflowFEMeta;
 }
 
 export interface IWorkflowCredentials {
@@ -2312,19 +2625,15 @@ export interface IWorkflowExecutionDataProcess {
 	workflowData: IWorkflowBase;
 	userId?: string;
 	projectId?: string;
-	/**
-	 * Defines which version of the partial execution flow is used.
-	 * Possible values are:
-	 *  1 - use the old flow
-	 *  2 - use the new flow
-	 */
-	partialExecutionVersion?: 1 | 2;
 	dirtyNodeNames?: string[];
 	triggerToStartFrom?: {
 		name: string;
 		data?: ITaskData;
 	};
 	agentRequest?: AiAgentRequest;
+	httpResponse?: express.Response; // Used for streaming responses
+	streamingEnabled?: boolean;
+	startedAt?: Date;
 }
 
 export interface ExecuteWorkflowOptions {
@@ -2380,11 +2689,13 @@ export interface IWorkflowExecuteAdditionalData {
 		additionalData: IWorkflowExecuteAdditionalData,
 		options: ExecuteWorkflowOptions,
 	) => Promise<ExecuteWorkflowData>;
+	getRunExecutionData: (executionId: string) => Promise<IRunExecutionData | undefined>;
 	executionId?: string;
 	restartExecutionId?: string;
 	currentNodeExecutionIndex: number;
 	httpResponse?: express.Response;
 	httpRequest?: express.Request;
+	streamingEnabled?: boolean;
 	restApiUrl: string;
 	instanceBaseUrl: string;
 	setExecutionStatus?: (status: ExecutionStatus) => void;
@@ -2419,17 +2730,6 @@ export interface IWorkflowExecuteAdditionalData {
 	): Promise<Result<T, E>>;
 }
 
-export type WorkflowExecuteMode =
-	| 'cli'
-	| 'error'
-	| 'integrated'
-	| 'internal'
-	| 'manual'
-	| 'retry'
-	| 'trigger'
-	| 'webhook'
-	| 'evaluation';
-
 export type WorkflowActivateMode =
 	| 'init'
 	| 'create' // unused
@@ -2455,10 +2755,14 @@ export interface IWorkflowSettings {
 	executionTimeout?: number;
 	executionOrder?: 'v0' | 'v1';
 	timeSavedPerExecution?: number;
+	availableInMCP?: boolean;
 }
 
 export interface WorkflowFEMeta {
 	onboardingId?: string;
+	templateId?: string;
+	instanceId?: string;
+	templateCredsSetupCompleted?: boolean;
 }
 
 export interface WorkflowTestData {
@@ -2597,13 +2901,20 @@ export interface INodeGraphItem {
 	src_node_id?: string;
 	src_instance_id?: string;
 	agent?: string; //@n8n/n8n-nodes-langchain.agent
+	is_streaming?: boolean; //@n8n/n8n-nodes-langchain.agent
 	prompts?: IDataObject[] | IDataObject; //ai node's prompts, cloud only
+	use_responses_api?: boolean; //@n8n/n8n-nodes-langchain.lmChatOpenAi
 	toolSettings?: IDataObject; //various langchain tool's settings
 	sql?: string; //merge node combineBySql, cloud only
 	workflow_id?: string; //@n8n/n8n-nodes-langchain.toolWorkflow and n8n-nodes-base.executeWorkflow
+	response_mode?: string; // @n8n/n8n-nodes-langchain.chatTrigger, n8n-nodes-base.webhook selected response mode
+	public_chat?: boolean; // @n8n/n8n-nodes-langchain.chatTrigger
 	runs?: number;
 	items_total?: number;
 	metric_names?: string[];
+	language?: string; // only for Code node: 'javascript' or 'python' or 'pythonNative'
+	package_version?: string; // only for community nodes
+	used_guardrails?: string[]; // only for @n8n/n8n-nodes-langchain.guardrails
 }
 
 export interface INodeNameIndex {
@@ -2729,6 +3040,10 @@ export type FormFieldsParameter = Array<{
 	placeholder?: string;
 	fieldName?: string;
 	fieldValue?: string;
+	limitSelection?: 'exact' | 'range' | 'unlimited';
+	numberOfSelections?: number;
+	minSelections?: number;
+	maxSelections?: number;
 }>;
 
 export type FieldTypeMap = {
@@ -2916,3 +3231,18 @@ export type IPersonalizationSurveyAnswersV4 = {
 	reportedSource?: string | null;
 	reportedSourceOther?: string | null;
 };
+
+export type ChunkType = 'begin' | 'item' | 'end' | 'error';
+export interface StructuredChunk {
+	type: ChunkType;
+	content?: string;
+	metadata: {
+		nodeId: string;
+		nodeName: string;
+		runIndex: number;
+		itemIndex: number;
+		timestamp: number;
+	};
+}
+
+export type ApiKeyAudience = 'public-api' | 'mcp-server-api';

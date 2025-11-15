@@ -42,8 +42,12 @@ export class PollContext extends NodeExecutionContext implements IPollFunctions 
 			returnJsonArray,
 			...getRequestHelperFunctions(workflow, node, additionalData),
 			...getBinaryHelperFunctions(additionalData, workflow.id),
-			...getSchedulingFunctions(workflow),
+			...getSchedulingFunctions(workflow.id, workflow.timezone, node.id),
 		};
+	}
+
+	getExecutionContext() {
+		return undefined;
 	}
 
 	getActivationMode() {

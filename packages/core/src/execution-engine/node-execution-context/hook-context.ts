@@ -1,3 +1,4 @@
+import { ApplicationError } from '@n8n/errors';
 import type {
 	ICredentialDataDecryptedObject,
 	INode,
@@ -9,7 +10,6 @@ import type {
 	IWebhookData,
 	WebhookType,
 } from 'n8n-workflow';
-import { ApplicationError } from 'n8n-workflow';
 
 import { NodeExecutionContext } from './node-execution-context';
 import { getRequestHelperFunctions } from './utils/request-helper-functions';
@@ -29,6 +29,10 @@ export class HookContext extends NodeExecutionContext implements IHookFunctions 
 		super(workflow, node, additionalData, mode);
 
 		this.helpers = getRequestHelperFunctions(workflow, node, additionalData);
+	}
+
+	getExecutionContext() {
+		return undefined;
 	}
 
 	getActivationMode() {

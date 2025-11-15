@@ -9,7 +9,7 @@ import {
 	WorkflowExecute,
 	rewireGraph,
 } from 'n8n-core';
-import { MANUAL_TRIGGER_NODE_TYPE, NodeHelpers } from 'n8n-workflow';
+import { NodeHelpers } from 'n8n-workflow';
 import type {
 	IExecuteData,
 	IPinData,
@@ -43,15 +43,7 @@ export class ManualExecutionService {
 			startNode = workflow.getNode(data.startNodes[0].name) ?? undefined;
 		}
 
-		if (startNode) {
-			return startNode;
-		}
-
-		const manualTrigger = workflow
-			.getTriggerNodes()
-			.find((node) => node.type === MANUAL_TRIGGER_NODE_TYPE);
-
-		return manualTrigger;
+		return startNode;
 	}
 
 	// eslint-disable-next-line @typescript-eslint/promise-function-async
@@ -111,11 +103,7 @@ export class ManualExecutionService {
 				executionData,
 			);
 			return workflowExecute.processRunExecutionData(workflow);
-		} else if (
-			data.runData === undefined ||
-			(data.partialExecutionVersion !== 2 && (!data.startNodes || data.startNodes.length === 0)) ||
-			data.executionMode === 'evaluation'
-		) {
+		} else if (data.runData === undefined || data.executionMode === 'evaluation') {
 			// Full Execution
 			// TODO: When the old partial execution logic is removed this block can
 			// be removed and the previous one can be merged into
@@ -174,29 +162,24 @@ export class ManualExecutionService {
 				data.triggerToStartFrom,
 			);
 		} else {
+			a.ok(
+				data.destinationNode,
+				'a destinationNodeName is required for the new partial execution flow',
+			);
+
 			// Partial Execution
 			this.logger.debug(`Execution ID ${executionId} is a partial execution.`, { executionId });
 			// Execute only the nodes between start and destination nodes
 			const workflowExecute = new WorkflowExecute(additionalData, data.executionMode);
 
-			if (data.partialExecutionVersion === 2) {
-				return workflowExecute.runPartialWorkflow2(
-					workflow,
-					data.runData,
-					data.pinData,
-					data.dirtyNodeNames,
-					data.destinationNode,
-					data.agentRequest,
-				);
-			} else {
-				return workflowExecute.runPartialWorkflow(
-					workflow,
-					data.runData,
-					data.startNodes ?? [],
-					data.destinationNode,
-					data.pinData,
-				);
-			}
+			return workflowExecute.runPartialWorkflow2(
+				workflow,
+				data.runData,
+				data.pinData,
+				data.dirtyNodeNames,
+				data.destinationNode,
+				data.agentRequest,
+			);
 		}
 	}
 }

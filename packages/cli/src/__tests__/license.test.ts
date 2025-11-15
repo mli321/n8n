@@ -103,7 +103,14 @@ describe('License', () => {
 	test('attempts to activate license with provided key', async () => {
 		await license.activate(MOCK_ACTIVATION_KEY);
 
-		expect(LicenseManager.prototype.activate).toHaveBeenCalledWith(MOCK_ACTIVATION_KEY);
+		expect(LicenseManager.prototype.activate).toHaveBeenCalledWith(MOCK_ACTIVATION_KEY, undefined);
+	});
+
+	test('attempts to activate license with eulaUri', async () => {
+		const eulaUri = 'https://n8n.io/legal/eula/';
+		await license.activate(MOCK_ACTIVATION_KEY, eulaUri);
+
+		expect(LicenseManager.prototype.activate).toHaveBeenCalledWith(MOCK_ACTIVATION_KEY, eulaUri);
 	});
 
 	test('renews license', async () => {
@@ -213,6 +220,64 @@ describe('License', () => {
 
 		const mainPlan = license.getMainPlan();
 		expect(mainPlan).toBeUndefined();
+	});
+
+	describe('onExpirySoon', () => {
+		it.each([
+			{
+				instanceType: 'main' as const,
+				isLeader: true,
+				shouldReload: false,
+				description: 'Leader main should not reload',
+			},
+			{
+				instanceType: 'main' as const,
+				isLeader: false,
+				shouldReload: true,
+				description: 'Follower main should reload',
+			},
+			{
+				instanceType: 'worker' as const,
+				isLeader: false,
+				shouldReload: true,
+				description: 'Worker should reload',
+			},
+			{
+				instanceType: 'webhook' as const,
+				isLeader: false,
+				shouldReload: true,
+				description: 'Webhook should reload',
+			},
+		])('$description', async ({ instanceType, isLeader, shouldReload }) => {
+			const logger = mockLogger();
+			const reloadSpy = jest.spyOn(License.prototype, 'reload').mockResolvedValueOnce();
+			const instanceSettings = mock<InstanceSettings>({ instanceType });
+			Object.defineProperty(instanceSettings, 'isLeader', { get: () => isLeader });
+
+			license = new License(
+				logger,
+				instanceSettings,
+				mock(),
+				mock(),
+				mock<GlobalConfig>({ license: licenseConfig }),
+			);
+
+			await license.init();
+
+			const licenseManager = LicenseManager as jest.MockedClass<typeof LicenseManager>;
+			const calls = licenseManager.mock.calls;
+			const licenseManagerCall = calls[calls.length - 1][0];
+			const onExpirySoon = licenseManagerCall.onExpirySoon;
+
+			if (shouldReload) {
+				expect(onExpirySoon).toBeDefined();
+				onExpirySoon!();
+				expect(reloadSpy).toHaveBeenCalled();
+			} else {
+				expect(onExpirySoon).toBeUndefined();
+				expect(reloadSpy).not.toHaveBeenCalled();
+			}
+		});
 	});
 });
 
