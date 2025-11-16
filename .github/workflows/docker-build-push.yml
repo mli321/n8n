@@ -309,7 +309,7 @@ jobs:
           password: ${{ secrets.DOCKER_PASSWORD }}
 
       - name: Build and push n8n Docker image
-        uses: useblacksmith/build-push-action@574eb0ee0b59c6a687ace24192f0727dfb65d6d7 # v1.2
+        uses: docker/build-push-action@v5
         with:
           context: .
           file: ./docker/images/n8n/Dockerfile
@@ -324,7 +324,7 @@ jobs:
           tags: ${{ steps.determine-tags.outputs.tags }}
 
       - name: Build and push task runners Docker image (Alpine)
-        uses: useblacksmith/build-push-action@574eb0ee0b59c6a687ace24192f0727dfb65d6d7 # v1.2
+        uses: docker/build-push-action@v5
         with:
           context: .
           file: ./docker/images/runners/Dockerfile
@@ -339,7 +339,7 @@ jobs:
           tags: ${{ steps.determine-runners-tags.outputs.tags }}
 
       - name: Build and push task runners Docker image (distroless)
-        uses: useblacksmith/build-push-action@574eb0ee0b59c6a687ace24192f0727dfb65d6d7 # v1.2
+        uses: docker/build-push-action@v5
         with:
           context: .
           file: ./docker/images/runners/Dockerfile.distroless
