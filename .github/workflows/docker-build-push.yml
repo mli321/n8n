@@ -1,6 +1,7 @@
 # This workflow is used to build and push the Docker image for n8nio/n8n and n8nio/runners
 # - determine-build-context: Determines what needs to be built based on the trigger
-# - build-and-push-docker: This builds on both an ARM64 and AMD64 runner so the builds are native to the platform. Uses blacksmith native runners and build-push-action
+# - build-and-push-docker: Builds AMD64 and ARM64 images using Buildx and QEMU on GitHub-hosted runners (`ubuntu-latest`).
+#   This fork intentionally avoids using the upstream Blacksmith self-hosted runner labels.
 # - create_multi_arch_manifest: This creates the multi-arch manifest for the Docker image. Needed to recombine the images from the build-and-push-docker job since they are separate runners.
 # - security-scan: This scans the n8nio/n8n Docker image for security vulnerabilities using Trivy.
 # - security-scan-runners: This scans the n8nio/runners Docker image for security vulnerabilities using Trivy.
@@ -138,7 +139,6 @@ jobs:
               "platform": ["amd64"],
               "include": [{
                 "platform": "amd64",
-                "runner": "blacksmith-4vcpu-ubuntu-2204",
                 "docker_platform": "linux/amd64"
               }]
             }'
@@ -148,11 +148,9 @@ jobs:
               "platform": ["amd64", "arm64"],
               "include": [{
                 "platform": "amd64",
-                "runner": "blacksmith-4vcpu-ubuntu-2204",
                 "docker_platform": "linux/amd64"
               }, {
                 "platform": "arm64",
-                "runner": "blacksmith-4vcpu-ubuntu-2204-arm",
                 "docker_platform": "linux/arm64"
               }]
             }'
@@ -277,6 +275,9 @@ jobs:
             "${{ secrets.DOCKER_USERNAME }}/runners" \
             "${{ matrix.platform }}" \
             "$GITHUB_OUTPUT"
+
+      - name: Set up QEMU emulation
+        uses: docker/setup-qemu-action@v2
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@b5ca514318bd6ebac0fb2aedd5d36ec1b5c232a2 # v3.10.0
